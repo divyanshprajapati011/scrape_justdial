@@ -86,54 +86,56 @@ from bs4 import BeautifulSoup
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+from playwright.sync_api import sync_playwright
+import pandas as pd
+import time
+
 def scrape_justdial(query, city="Bhopal", limit=50):
-    """Scrape Justdial search results"""
-    base_url = f"https://www.justdial.com/{city}/{query.replace(' ','-')}"
     rows = []
     fetched = 0
-    page = 1
 
-    while fetched < limit:
-        url = f"{base_url}/page-{page}"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        if resp.status_code != 200:
-            break
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        page = browser.new_page()
+        base_url = f"https://www.justdial.com/{city}/{query.replace(' ','-')}"
+        page.goto(base_url, timeout=60000)
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        listings = soup.select("div.jbbg")  # each business card
+        while fetched < limit:
+            # wait for business cards to load
+            page.wait_for_selector("div.resultbox", timeout=10000)
 
-        if not listings:
-            break
-
-        for item in listings:
-            if fetched >= limit:
+            listings = page.query_selector_all("div.resultbox")
+            if not listings:
                 break
 
-            name = item.select_one("a.ln24").get_text(strip=True) if item.select_one("a.ln24") else ""
-            phone = ""
-            phone_tag = item.select_one("p.contact-info span")
-            if phone_tag:
-                phone = phone_tag.get_text(strip=True)
+            for item in listings:
+                if fetched >= limit:
+                    break
 
-            address = item.select_one("p.address-info").get_text(" ", strip=True) if item.select_one("p.address-info") else ""
-            rating = item.select_one("span.green-box").get_text(strip=True) if item.select_one("span.green-box") else ""
-            reviews = item.select_one("span.rt_count").get_text(strip=True) if item.select_one("span.rt_count") else ""
-            category = item.select_one("span.category-info").get_text(strip=True) if item.select_one("span.category-info") else ""
+                name = item.query_selector("a.rs").inner_text().strip() if item.query_selector("a.rs") else ""
+                address = item.query_selector("span.cont_fl_addr").inner_text().strip() if item.query_selector("span.cont_fl_addr") else ""
+                phone = item.query_selector("p.contact-info").inner_text().strip() if item.query_selector("p.contact-info") else ""
+                rating = item.query_selector("span.green-box").inner_text().strip() if item.query_selector("span.green-box") else ""
+                reviews = item.query_selector("span.rt_count").inner_text().strip() if item.query_selector("span.rt_count") else ""
 
-            rows.append({
-                "Business Name": name,
-                "Address": address,
-                "Phone": phone,
-                "Rating": rating,
-                "Reviews": reviews,
-                "Category": category,
-                "Source Link": url
-            })
+                rows.append({
+                    "Business Name": name,
+                    "Address": address,
+                    "Phone": phone,
+                    "Rating": rating,
+                    "Reviews": reviews,
+                    "Source Link": base_url
+                })
+                fetched += 1
 
-            fetched += 1
+            # scroll + next page
+            next_btn = page.query_selector("a#nextbtn")
+            if not next_btn:
+                break
+            next_btn.click()
+            time.sleep(3)
 
-        page += 1
-        time.sleep(2)  # polite scraping delay
+        browser.close()
 
     return pd.DataFrame(rows)
 
@@ -259,3 +261,4 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
