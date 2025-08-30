@@ -90,55 +90,38 @@ from playwright.sync_api import sync_playwright
 import pandas as pd
 import time
 
-def scrape_justdial(query, city="Bhopal", limit=50):
+import requests
+import pandas as pd
+import time
+
+APIFY_TOKEN = "happitap/lead-extractor---justdial"  # अपना token डालो
+
+def scrape_justdial_apify(query, city="Bhopal", limit=50):
+    url = f"https://api.apify.com/v2/acts/apify~justdial-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+
+    payload = {
+        "queries": [f"{query} in {city}"],  # जैसे "Coaching Classes in Bhopal"
+        "maxResults": limit
+    }
+
+    res = requests.post(url, json=payload)
+    data = res.json()
+
+    if not data:
+        return pd.DataFrame()
+
     rows = []
-    fetched = 0
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-        page = browser.new_page()
-        base_url = f"https://www.justdial.com/{city}/{query.replace(' ','-')}"
-        page.goto(base_url, timeout=60000)
-        time.sleep(5)  # wait for page to load JS
-
-        while fetched < limit:
-            listings = page.query_selector_all("li.cntanr")  # ✅ correct selector
-            if not listings:
-                break
-
-            for item in listings:
-                if fetched >= limit:
-                    break
-
-                name = item.query_selector("span.jcn a")
-                name = name.inner_text().strip() if name else ""
-
-                address = item.query_selector("span.cont_fl_addr")
-                address = address.inner_text().strip() if address else ""
-
-                rating = item.query_selector("span.green-box")
-                rating = rating.inner_text().strip() if rating else ""
-
-                reviews = item.query_selector("span.rt_count")
-                reviews = reviews.inner_text().strip() if reviews else ""
-
-                rows.append({
-                    "Business Name": name,
-                    "Address": address,
-                    "Rating": rating,
-                    "Reviews": reviews,
-                    "Source Link": base_url
-                })
-                fetched += 1
-
-            # next page
-            next_btn = page.query_selector("a#nextbtn")
-            if not next_btn:
-                break
-            next_btn.click()
-            time.sleep(3)
-
-        browser.close()
+    for r in data:
+        rows.append({
+            "Business Name": r.get("name"),
+            "Address": r.get("address"),
+            "Phone": r.get("phone"),
+            "Rating": r.get("rating"),
+            "Reviews": r.get("reviewsCount"),
+            "Category": r.get("category"),
+            "Website": r.get("website"),
+            "Source Link": r.get("url"),
+        })
 
     return pd.DataFrame(rows)
 
@@ -226,33 +209,26 @@ def page_scraper():
     max_results = st.number_input("Maximum results to fetch", min_value=5, max_value=200, value=50, step=5)
 
     start_btn = st.button("Start Scraping")
-
     if start_btn:
-        with st.spinner("⏳ Fetching data from Justdial..."):
+        with st.spinner("⏳ Fetching data from Justdial via Apify..."):
             try:
-                df = scrape_justdial(query, "Bhopal", int(max_results))
-                st.success(f"✅ Found {len(df)} results.")
-                st.dataframe(df, use_container_width=True)
-
+                df = scrape_justdial_apify(query, city, int(max_results))
                 if df.empty:
                     st.warning("⚠ No data found. Try different query/city.")
                 else:
                     st.success(f"✅ Found {len(df)} results.")
                     st.dataframe(df, use_container_width=True)
-
-                    # Download CSV
+    
                     csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button("⬇ Download CSV", data=csv_bytes, file_name="justdial_scrape.csv", mime="text/csv")
-
-                    # Download Excel
+    
                     xlsx_bytes = df_to_excel_bytes(df)
                     st.download_button("⬇ Download Excel", data=xlsx_bytes,
                                        file_name="justdial_scrape.xlsx",
                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 st.error(f"❌ Scraping failed: {e}")
-
-
+                
 # ================== LAYOUT ==================
 topbar()
 page = st.session_state.page
@@ -266,6 +242,7 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
 
 
 
