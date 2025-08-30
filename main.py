@@ -14,32 +14,42 @@ def scrape_justdial(business_type, city, limit=50):
         context = browser.new_context()
         page = context.new_page()
 
-        # 🔗 Build search URL
+        # Build search URL
         search_url = f"https://www.justdial.com/{city}/{business_type}"
         page.goto(search_url, timeout=60000)
-        time.sleep(5)  # wait for JS
 
-        # ✅ Correct selector for business cards
-        cards = page.query_selector_all("div#bcard")
+        # ✅ Wait for first card to load
+        page.wait_for_selector("div#bcard", timeout=20000)
 
-        for card in cards[:limit]:
-            name = card.query_selector("h2 a") .inner_text().strip() if card.query_selector("h2 a") else ""
-            phone = card.query_selector("a.tel") .inner_text().strip() if card.query_selector("a.tel") else ""
-            address = card.query_selector("span.cont_fl_addr") .inner_text().strip() if card.query_selector("span.cont_fl_addr") else ""
+        # ✅ Auto-scroll for loading more results
+        last_height = 0
+        while len(data) < limit:
+            page.mouse.wheel(0, 3000)
+            time.sleep(2)
 
-            # ⭐ Rating
-            rating = card.query_selector("span.green-box").inner_text().strip() if card.query_selector("span.green-box") else ""
+            # Get all cards loaded so far
+            cards = page.query_selector_all("div#bcard")
 
-            # 📝 No. of Reviews
-            reviews = card.query_selector("span.rt_count").inner_text().strip("() ") if card.query_selector("span.rt_count") else ""
+            for card in cards[len(data):limit]:
+                name = card.query_selector("h2 a").inner_text().strip() if card.query_selector("h2 a") else ""
+                phone = card.query_selector("a.tel").inner_text().strip() if card.query_selector("a.tel") else ""
+                address = card.query_selector("span.cont_fl_addr").inner_text().strip() if card.query_selector("span.cont_fl_addr") else ""
+                rating = card.query_selector("span.green-box").inner_text().strip() if card.query_selector("span.green-box") else ""
+                reviews = card.query_selector("span.rt_count").inner_text().strip("() ") if card.query_selector("span.rt_count") else ""
 
-            data.append({
-                "Name": name,
-                "Phone": phone,
-                "Address": address,
-                "Rating": rating,
-                "Reviews": reviews
-            })
+                data.append({
+                    "Name": name,
+                    "Phone": phone,
+                    "Address": address,
+                    "Rating": rating,
+                    "Reviews": reviews
+                })
+
+            # Break if no new results
+            new_height = page.evaluate("document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
 
         browser.close()
 
