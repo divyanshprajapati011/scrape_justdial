@@ -11,9 +11,3 @@ beautifulsoup4
 playwright
 playwright
 playwright-stealth
-streamlit
-pandas
-psycopg2-binary
-openpyxl
-requests
-playwright
