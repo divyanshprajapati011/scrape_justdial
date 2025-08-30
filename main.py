@@ -14,28 +14,40 @@ def scrape_justdial(business_type, city, limit=50):
         context = browser.new_context()
         page = context.new_page()
 
-        # Build search URL
         search_url = f"https://www.justdial.com/{city}/{business_type}"
         page.goto(search_url, timeout=60000)
 
-        # ✅ Wait for first card to load
-        page.wait_for_selector("div#bcard", timeout=20000)
+        # ✅ Try multiple selectors (fallback handling)
+        selectors = ["div#bcard", "div.cntanr", "div.jcn", "div.resultbox", "div.store-details"]
 
-        # ✅ Auto-scroll for loading more results
-        last_height = 0
+        found_selector = None
+        for sel in selectors:
+            try:
+                page.wait_for_selector(sel, timeout=15000)
+                found_selector = sel
+                break
+            except:
+                continue
+
+        if not found_selector:
+            return pd.DataFrame([])  # No data found
+
+        # ✅ Scroll & collect
         while len(data) < limit:
             page.mouse.wheel(0, 3000)
             time.sleep(2)
 
-            # Get all cards loaded so far
-            cards = page.query_selector_all("div#bcard")
-
+            cards = page.query_selector_all(found_selector)
             for card in cards[len(data):limit]:
-                name = card.query_selector("h2 a").inner_text().strip() if card.query_selector("h2 a") else ""
-                phone = card.query_selector("a.tel").inner_text().strip() if card.query_selector("a.tel") else ""
-                address = card.query_selector("span.cont_fl_addr").inner_text().strip() if card.query_selector("span.cont_fl_addr") else ""
-                rating = card.query_selector("span.green-box").inner_text().strip() if card.query_selector("span.green-box") else ""
-                reviews = card.query_selector("span.rt_count").inner_text().strip("() ") if card.query_selector("span.rt_count") else ""
+                name = card.query_selector("a").inner_text().strip() if card.query_selector("a") else ""
+                phone = card.query_selector("a.tel") or card.query_selector("p.contact-info")
+                phone = phone.inner_text().strip() if phone else ""
+                address = card.query_selector("span.cont_fl_addr") or card.query_selector("span.address-info")
+                address = address.inner_text().strip() if address else ""
+                rating = card.query_selector("span.green-box")
+                rating = rating.inner_text().strip() if rating else ""
+                reviews = card.query_selector("span.rt_count")
+                reviews = reviews.inner_text().strip("() ") if reviews else ""
 
                 data.append({
                     "Name": name,
@@ -45,14 +57,11 @@ def scrape_justdial(business_type, city, limit=50):
                     "Reviews": reviews
                 })
 
-            # Break if no new results
-            new_height = page.evaluate("document.body.scrollHeight")
-            if new_height == last_height:
+            # Break if no new data
+            if len(cards) >= limit:
                 break
-            last_height = new_height
 
         browser.close()
-
     return pd.DataFrame(data)
 
 # ================== Streamlit UI ==================
@@ -73,3 +82,4 @@ if st.button("Start Scraping"):
             st.warning("⚠️ No data found. Try another keyword or city.")
     except Exception as e:
         st.error(f"❌ Scraping failed: {e}")
+
