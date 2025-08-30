@@ -4,7 +4,7 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import hashlib, io, time, urllib.parse, re, requests, os, subprocess, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 # ================== APP CONFIG ==================
 st.set_page_config(page_title="Justdial Scraper + Auth Flow", layout="wide")
@@ -112,10 +112,16 @@ def scrape_justdial(url, limit=50, email_lookup=True):
         )
         context = browser.new_context()
         page = context.new_page()
-        page.goto(url, timeout=60_000)
-        time.sleep(3)
+        try:
+            page.goto(url, timeout=60_000)
+        except PlaywrightTimeoutError:
+            st.error("Page load timeout. Please try again.")
+            browser.close()
+            return pd.DataFrame()
 
+        time.sleep(3)
         count = 0
+
         while True:
             cards = page.locator("//div[contains(@class,'store-details')]").all()
             for card in cards:
@@ -143,8 +149,9 @@ def scrape_justdial(url, limit=50, email_lookup=True):
 
                 website = ""
                 try:
-                    if card.locator("a:has-text('Visit Website')").count():
-                        website = card.locator("a:has-text('Visit Website')").get_attribute("href") or ""
+                    links = card.locator("a:has-text('Visit Website')")
+                    if links.count() > 0:
+                        website = links.first.get_attribute("href") or ""
                 except:
                     pass
 
@@ -166,11 +173,12 @@ def scrape_justdial(url, limit=50, email_lookup=True):
 
             if limit and count >= limit:
                 break
+
             try:
                 next_btn = page.locator("//a[contains(text(),'Next')]")
                 if next_btn.count():
-                    next_btn.click()
-                    page.wait_for_timeout(2500)
+                    next_btn.first.click()
+                    page.wait_for_timeout(3000)
                 else:
                     break
             except:
@@ -271,17 +279,20 @@ def page_scraper():
             with st.spinner("Scraping in progress..."):
                 try:
                     df = scrape_justdial(jd_url, int(max_results), bool(do_email_lookup))
-                    st.success(f"Scraping completed! Found {len(df)} results.")
-                    st.dataframe(df, use_container_width=True)
-                    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-                    st.download_button("⬇️ Download CSV", data=csv_bytes, file_name="justdial_scrape.csv", mime="text/csv")
-                    xlsx_bytes = df_to_excel_bytes(df)
-                    st.download_button(
-                        "⬇️ Download Excel",
-                        data=xlsx_bytes,
-                        file_name="justdial_scrape.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    if df.empty:
+                        st.warning("No data found. Try another search.")
+                    else:
+                        st.success(f"Scraping completed! Found {len(df)} results.")
+                        st.dataframe(df, use_container_width=True)
+                        csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+                        st.download_button("⬇️ Download CSV", data=csv_bytes, file_name="justdial_scrape.csv", mime="text/csv")
+                        xlsx_bytes = df_to_excel_bytes(df)
+                        st.download_button(
+                            "⬇️ Download Excel",
+                            data=xlsx_bytes,
+                            file_name="justdial_scrape.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
                 except Exception as e:
                     st.error(f"Scraping failed: {e}")
 
