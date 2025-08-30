@@ -89,6 +89,10 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 from playwright.sync_api import sync_playwright
 import pandas as pd
 import time
+from playwright.sync_api import sync_playwright
+import pandas as pd
+from bs4 import BeautifulSoup
+import time
 
 def scrape_justdial(query, city="Bhopal", limit=50):
     rows = []
@@ -99,12 +103,13 @@ def scrape_justdial(query, city="Bhopal", limit=50):
         page = browser.new_page()
         base_url = f"https://www.justdial.com/{city}/{query.replace(' ','-')}"
         page.goto(base_url, timeout=60000)
+        time.sleep(5)  # wait for dynamic load
 
         while fetched < limit:
-            # wait for business cards to load
-            page.wait_for_selector("div.resultbox", timeout=10000)
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
 
-            listings = page.query_selector_all("div.resultbox")
+            listings = soup.select("div.cjrx1")  # ✅ updated selector
             if not listings:
                 break
 
@@ -112,23 +117,28 @@ def scrape_justdial(query, city="Bhopal", limit=50):
                 if fetched >= limit:
                     break
 
-                name = item.query_selector("a.rs").inner_text().strip() if item.query_selector("a.rs") else ""
-                address = item.query_selector("span.cont_fl_addr").inner_text().strip() if item.query_selector("span.cont_fl_addr") else ""
-                phone = item.query_selector("p.contact-info").inner_text().strip() if item.query_selector("p.contact-info") else ""
-                rating = item.query_selector("span.green-box").inner_text().strip() if item.query_selector("span.green-box") else ""
-                reviews = item.query_selector("span.rt_count").inner_text().strip() if item.query_selector("span.rt_count") else ""
+                name = item.select_one("span.jcn a")
+                name = name.get_text(strip=True) if name else ""
+
+                address = item.select_one("span.cont_fl_addr")
+                address = address.get_text(strip=True) if address else ""
+
+                rating = item.select_one("span.green-box")
+                rating = rating.get_text(strip=True) if rating else ""
+
+                reviews = item.select_one("span.rt_count")
+                reviews = reviews.get_text(strip=True) if reviews else ""
 
                 rows.append({
                     "Business Name": name,
                     "Address": address,
-                    "Phone": phone,
                     "Rating": rating,
                     "Reviews": reviews,
                     "Source Link": base_url
                 })
                 fetched += 1
 
-            # scroll + next page
+            # next page
             next_btn = page.query_selector("a#nextbtn")
             if not next_btn:
                 break
@@ -261,4 +271,5 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
 
