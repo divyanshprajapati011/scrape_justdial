@@ -66,7 +66,7 @@ import requests, re
 from bs4 import BeautifulSoup
 
 # ================== APIFY + FALLBACK ==================
-def scrape_justdial(query, city="Bhopal", limit=50):
+def scrape_justdial_apify(query, city="Bhopal", limit=50):
     # ---------------- TRY APIFY ----------------
     url = f"https://api.apify.com/v2/acts/apify~justdial-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
     payload = {
@@ -253,4 +253,5 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
 
