@@ -5,7 +5,6 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import hashlib, io, time, urllib.parse, re, requests, os, subprocess, sys
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
 
 # ================== APP CONFIG ==================
 st.set_page_config(page_title="Justdial Scraper + Auth Flow", layout="wide")
@@ -104,39 +103,43 @@ def get_jd_url(query: str, city="Bhopal"):
     city = urllib.parse.quote_plus(city.strip())
     return f"https://www.justdial.com/{city}/{query}"
 
-# justdial_scraper.py
-import time
-from playwright.sync_api import sync_playwright
-
-def scrape_justdial(query, city, limit=20):
+def scrape_justdial(query: str, city: str, limit=20, email_lookup=False) -> pd.DataFrame:
     results = []
-    search_url = f"https://www.justdial.com/{city}/{query}"
+    search_url = get_jd_url(query, city)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         context = browser.new_context()
         page = context.new_page()
 
         page.goto(search_url, timeout=60000)
         time.sleep(3)
 
-        # Infinite scroll to load results
         last_height = 0
         while len(results) < limit:
             page.mouse.wheel(0, 2000)
             time.sleep(2)
 
-            cards = page.query_selector_all("article")  # each business card
+            cards = page.query_selector_all("article")
             for card in cards:
                 try:
                     name = card.query_selector("h2, h3, h4")
                     phone = card.query_selector("a[href*='tel:']")
                     addr = card.query_selector("p")
+                    website = card.query_selector("a[href*='http']")
+
+                    site_url = website.get_attribute("href") if website else ""
+                    email, extra_phone = ("", "")
+                    if email_lookup and site_url:
+                        email, extra_phone = fetch_email_phone_from_site(site_url)
 
                     results.append({
                         "name": name.inner_text().strip() if name else "",
                         "phone": phone.inner_text().strip() if phone else "",
-                        "address": addr.inner_text().strip() if addr else ""
+                        "address": addr.inner_text().strip() if addr else "",
+                        "website": site_url,
+                        "email": email,
+                        "extra_phone": extra_phone
                     })
                 except:
                     continue
@@ -144,21 +147,14 @@ def scrape_justdial(query, city, limit=20):
             if len(results) >= limit:
                 break
 
-            # scroll further
             new_height = page.evaluate("document.body.scrollHeight")
             if new_height == last_height:
                 break
             last_height = new_height
 
         browser.close()
-    return results[:limit]
 
-# Quick test
-if __name__ == "__main__":
-    data = scrape_justdial("top coaching", "Bhopal", limit=10)
-    for d in data:
-        print(d)
-
+    return pd.DataFrame(results[:limit])
 
 # ================== DOWNLOAD HELPERS ==================
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
@@ -243,13 +239,12 @@ def page_scraper():
     do_email_lookup = st.checkbox("Website से Email/extra Phones भी निकालें (slower)", value=True)
     start_btn = st.button("Start Scraping")
     if start_btn:
-        jd_url = get_jd_url(user_input, city)
-        if not jd_url.strip():
+        if not user_input.strip() or not city.strip():
             st.error("Please enter a valid input")
         else:
             with st.spinner("Scraping in progress..."):
                 try:
-                    df = scrape_justdial(jd_url, int(max_results), bool(do_email_lookup))
+                    df = scrape_justdial(user_input, city, int(max_results), bool(do_email_lookup))
                     if df.empty:
                         st.warning("No data found. Try another search.")
                     else:
@@ -280,5 +275,3 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
-
-
