@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import hashlib, io, requests, re, time
+import hashlib, io, requests, re
 
 # ================== APP CONFIG ==================
-st.set_page_config(page_title="Maps Scraper 🚀", layout="wide")
+st.set_page_config(page_title="Maps + Justdial Scraper 🚀", layout="wide")
 
 # ================== SESSION ROUTER ==================
 if "page" not in st.session_state:
@@ -22,7 +22,7 @@ def go_to(p):
 def get_connection():
     return psycopg2.connect(
         user="postgres.jsjlthhnrtwjcyxowpza",
-        password="@Deep7067",
+        password="@Deep7067",   # ⚠️ production me env var use karna
         host="aws-1-ap-south-1.pooler.supabase.com",
         port="6543",
         dbname="postgres",
@@ -59,42 +59,8 @@ def login_user(username, password):
     cur.close(); db.close()
     return user
 
-# ================== SCRAPER (SERPAPI + EMAIL LOOKUP) ==================
-SERPAPI_KEY = "ea60d7830fc08072d9ab7f9109e10f1150c042719c20e7d8d9b9c6a25e3afe09"
-
-EMAIL_REGEX = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
-PHONE_REGEX = r"\+?\d[\d\-\(\) ]{8,}\d"
-
-def extract_email_phone(website_url):
-    """website से email और phone extract करने का helper"""
-    try:
-        resp = requests.get(website_url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-        text = resp.text
-        emails = re.findall(EMAIL_REGEX, text)
-        phones = re.findall(PHONE_REGEX, text)
-
-        email = emails[0] if emails else ""
-        phone = phones[0] if phones else ""
-        return email, phone
-    except Exception:
-        return "", ""
-
-
-import requests, re, time
-import pandas as pd
-from bs4 import BeautifulSoup
-
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-
-from playwright.sync_api import sync_playwright
-import pandas as pd
-import time
-
-import requests
-import pandas as pd
-import time
-
-APIFY_TOKEN = "happitap/lead-extractor---justdial"  # अपना token डालो
+# ================== APIFY JUSTDIAL SCRAPER ==================
+APIFY_TOKEN = "apify_api_54O7FoO2ZtjaJ76fU7yKqzBEQsWqak34LZVv"   # 👈 यहां अपना Apify token डालें
 
 def scrape_justdial_apify(query, city="Bhopal", limit=50):
     url = f"https://api.apify.com/v2/acts/apify~justdial-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
@@ -125,7 +91,6 @@ def scrape_justdial_apify(query, city="Bhopal", limit=50):
 
     return pd.DataFrame(rows)
 
-
 # ============================================================
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
@@ -151,8 +116,8 @@ def topbar():
 
 # ================== PAGES ==================
 def page_home():
-    st.title("Welcome to Maps Scraper 🚀")
-    st.write("Signup → Login → Scrape Google Maps data")
+    st.title("Welcome 🚀")
+    st.write("Signup → Login → Scrape Justdial Data via Apify")
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🔑 Login", use_container_width=True):
@@ -174,7 +139,7 @@ def page_login():
         if user:
             st.session_state.logged_in = True
             st.session_state.user = user
-            st.success("✅ Login successful! Redirecting to Scraper...")
+            st.success("✅ Login successful! Redirecting...")
             go_to("scraper")
         else:
             st.error("❌ Invalid credentials")
@@ -203,7 +168,7 @@ def page_scraper():
             go_to("login")
         return
 
-    st.title("🚀 Justdial Scraper ")
+    st.title("🚀 Justdial Scraper (via Apify)")
     query = st.text_input("🔎 Enter your query", "Top Coaching Classes")
     city = st.text_input("🏙 Enter City", "Bhopal")
     max_results = st.number_input("Maximum results to fetch", min_value=5, max_value=200, value=50, step=5)
@@ -218,17 +183,17 @@ def page_scraper():
                 else:
                     st.success(f"✅ Found {len(df)} results.")
                     st.dataframe(df, use_container_width=True)
-    
+
                     csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button("⬇ Download CSV", data=csv_bytes, file_name="justdial_scrape.csv", mime="text/csv")
-    
+
                     xlsx_bytes = df_to_excel_bytes(df)
                     st.download_button("⬇ Download Excel", data=xlsx_bytes,
                                        file_name="justdial_scrape.xlsx",
                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             except Exception as e:
                 st.error(f"❌ Scraping failed: {e}")
-                
+
 # ================== LAYOUT ==================
 topbar()
 page = st.session_state.page
@@ -242,7 +207,3 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
-
-
-
-
