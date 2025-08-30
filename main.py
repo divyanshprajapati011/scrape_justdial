@@ -5,6 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import hashlib, io, time, urllib.parse, re, requests, os, subprocess, sys
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 # ================== APP CONFIG ==================
 st.set_page_config(page_title="Justdial Scraper + Auth Flow", layout="wide")
@@ -103,91 +104,46 @@ def get_jd_url(query: str, city="Bhopal"):
     city = urllib.parse.quote_plus(city.strip())
     return f"https://www.justdial.com/{city}/{query}"
 
-def scrape_justdial(url, limit=50, email_lookup=True):
-    rows = []
+def scrape_justdial(url: str, limit: int = 50):
+    data = []
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
         context = browser.new_context()
         page = context.new_page()
-        try:
-            page.goto(url, timeout=60_000)
-        except PlaywrightTimeoutError:
-            st.error("Page load timeout. Please try again.")
-            browser.close()
-            return pd.DataFrame()
+        page.goto(url, timeout=60000)
 
-        time.sleep(3)
-        count = 0
+        time.sleep(3)  # allow JS to load
 
-        while True:
-            cards = page.locator("//div[contains(@class,'store-details')]").all()
-            for card in cards:
-                if limit and count >= limit:
-                    break
-                try:
-                    name = card.locator(".store-name").inner_text(timeout=2000)
-                except:
-                    name = ""
+        # scroll to load more results
+        for _ in range(5):
+            page.mouse.wheel(0, 3000)
+            time.sleep(1.5)
 
-                try:
-                    phone = card.locator(".contact-info").inner_text(timeout=2000)
-                except:
-                    phone = ""
+        cards = page.query_selector_all("div.resultbox")  # wrapper for each business
 
-                try:
-                    address = card.locator(".address-info").inner_text(timeout=2000)
-                except:
-                    address = ""
-
-                try:
-                    rating = card.locator(".green-box").inner_text(timeout=2000)
-                except:
-                    rating = ""
-
-                website = ""
-                try:
-                    links = card.locator("a:has-text('Visit Website')")
-                    if links.count() > 0:
-                        website = links.first.get_attribute("href") or ""
-                except:
-                    pass
-
-                email_from_site, extra_phones_from_site = "", ""
-                if email_lookup and website:
-                    email_from_site, extra_phones_from_site = fetch_email_phone_from_site(website)
-
-                rows.append({
-                    "Business Name": name,
-                    "Website": website,
-                    "Address": address,
-                    "Phone (Justdial)": phone,
-                    "Email (from site)": email_from_site,
-                    "Extra Phones (from site)": extra_phones_from_site,
-                    "Rating": rating,
-                    "Source (JD URL)": page.url
-                })
-                count += 1
-
-            if limit and count >= limit:
-                break
-
+        for card in cards[:limit]:
             try:
-                next_btn = page.locator("//a[contains(text(),'Next')]")
-                if next_btn.count():
-                    next_btn.first.click()
-                    page.wait_for_timeout(3000)
-                else:
-                    break
-            except:
-                break
+                name = card.query_selector("h2 a").inner_text().strip() if card.query_selector("h2 a") else ""
+                phone = card.query_selector("a.tel").inner_text().strip() if card.query_selector("a.tel") else ""
+                address = card.query_selector("span.cont_fl_addr").inner_text().strip() if card.query_selector("span.cont_fl_addr") else ""
+                rating = card.query_selector("span.green-box").inner_text().strip() if card.query_selector("span.green-box") else ""
 
-        context.close()
+                data.append({
+                    "Name": name,
+                    "Phone": phone,
+                    "Address": address,
+                    "Rating": rating,
+                })
+            except Exception as e:
+                print("Error parsing card:", e)
+
         browser.close()
 
-    return pd.DataFrame(rows)
+    return data
 
 # ================== DOWNLOAD HELPERS ==================
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
@@ -309,3 +265,4 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
