@@ -1,85 +1,56 @@
-# main.py
-import streamlit as st
+import requests, re, time
 import pandas as pd
-import time
-from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
 
-st.set_page_config(page_title="Justdial Scraper", layout="wide")
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-def scrape_justdial(business_type, city, limit=50):
-    data = []
+def scrape_justdial(query, city="Bhopal", limit=50):
+    """Scrape Justdial search results"""
+    base_url = f"https://www.justdial.com/{city}/{query.replace(' ','-')}"
+    rows = []
+    fetched = 0
+    page = 1
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-        context = browser.new_context()
-        page = context.new_page()
+    while fetched < limit:
+        url = f"{base_url}/page-{page}"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        if resp.status_code != 200:
+            break
 
-        search_url = f"https://www.justdial.com/{city}/{business_type}"
-        page.goto(search_url, timeout=60000)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        listings = soup.select("div.jbbg")  # each business card
 
-        # ✅ Try multiple selectors (fallback handling)
-        selectors = ["div#bcard", "div.cntanr", "div.jcn", "div.resultbox", "div.store-details"]
+        if not listings:
+            break
 
-        found_selector = None
-        for sel in selectors:
-            try:
-                page.wait_for_selector(sel, timeout=15000)
-                found_selector = sel
-                break
-            except:
-                continue
-
-        if not found_selector:
-            return pd.DataFrame([])  # No data found
-
-        # ✅ Scroll & collect
-        while len(data) < limit:
-            page.mouse.wheel(0, 3000)
-            time.sleep(2)
-
-            cards = page.query_selector_all(found_selector)
-            for card in cards[len(data):limit]:
-                name = card.query_selector("a").inner_text().strip() if card.query_selector("a") else ""
-                phone = card.query_selector("a.tel") or card.query_selector("p.contact-info")
-                phone = phone.inner_text().strip() if phone else ""
-                address = card.query_selector("span.cont_fl_addr") or card.query_selector("span.address-info")
-                address = address.inner_text().strip() if address else ""
-                rating = card.query_selector("span.green-box")
-                rating = rating.inner_text().strip() if rating else ""
-                reviews = card.query_selector("span.rt_count")
-                reviews = reviews.inner_text().strip("() ") if reviews else ""
-
-                data.append({
-                    "Name": name,
-                    "Phone": phone,
-                    "Address": address,
-                    "Rating": rating,
-                    "Reviews": reviews
-                })
-
-            # Break if no new data
-            if len(cards) >= limit:
+        for item in listings:
+            if fetched >= limit:
                 break
 
-        browser.close()
-    return pd.DataFrame(data)
+            name = item.select_one("a.ln24").get_text(strip=True) if item.select_one("a.ln24") else ""
+            phone = ""
+            phone_tag = item.select_one("p.contact-info span")
+            if phone_tag:
+                phone = phone_tag.get_text(strip=True)
 
-# ================== Streamlit UI ==================
-st.title("🚀 Justdial Scraper")
+            address = item.select_one("p.address-info").get_text(" ", strip=True) if item.select_one("p.address-info") else ""
+            rating = item.select_one("span.green-box").get_text(strip=True) if item.select_one("span.green-box") else ""
+            reviews = item.select_one("span.rt_count").get_text(strip=True) if item.select_one("span.rt_count") else ""
+            category = item.select_one("span.category-info").get_text(strip=True) if item.select_one("span.category-info") else ""
 
-business_type = st.text_input("🔍 Enter business type (e.g. top coaching)", "top coaching")
-city = st.text_input("🏙️ Enter City", "Mumbai")
-limit = st.number_input("Maximum results to fetch", 10, 200, 50)
+            rows.append({
+                "Business Name": name,
+                "Address": address,
+                "Phone": phone,
+                "Rating": rating,
+                "Reviews": reviews,
+                "Category": category,
+                "Source Link": url
+            })
 
-if st.button("Start Scraping"):
-    try:
-        df = scrape_justdial(business_type, city, limit)
-        if not df.empty:
-            st.success(f"Scraped {len(df)} results ✅")
-            st.dataframe(df)
-            st.download_button("📥 Download CSV", df.to_csv(index=False), "justdial_data.csv")
-        else:
-            st.warning("⚠️ No data found. Try another keyword or city.")
-    except Exception as e:
-        st.error(f"❌ Scraping failed: {e}")
+            fetched += 1
 
+        page += 1
+        time.sleep(2)  # polite scraping delay
+
+    return pd.DataFrame(rows)
