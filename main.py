@@ -62,31 +62,77 @@ def login_user(username, password):
 # ================== APIFY JUSTDIAL SCRAPER ==================
 APIFY_TOKEN = "apify_api_54O7FoO2ZtjaJ76fU7yKqzBEQsWqak34LZVv"   # 👈 यहां अपना Apify token डालें
 
-def scrape_justdial_apify(query, city="Bhopal", limit=50):
-    url = f"https://api.apify.com/v2/acts/apify~justdial-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
+import requests, re
+from bs4 import BeautifulSoup
 
+# ================== APIFY + FALLBACK ==================
+def scrape_justdial(query, city="Bhopal", limit=50):
+    # ---------------- TRY APIFY ----------------
+    url = f"https://api.apify.com/v2/acts/apify~justdial-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
     payload = {
-        "queries": [f"{query} in {city}"],  # जैसे "Coaching Classes in Bhopal"
+        "queries": [f"{query} in {city}"],
         "maxResults": limit
     }
 
-    res = requests.post(url, json=payload)
-    data = res.json()
+    try:
+        res = requests.post(url, json=payload, timeout=60)
+        data = res.json()
 
-    if not data:
-        return pd.DataFrame()
+        # error case
+        if isinstance(data, dict) and "error" in data:
+            st.warning(f"⚠ Apify error: {data['error']}")
+            data = []
 
+    except Exception as e:
+        st.warning(f"⚠ Apify failed: {e}")
+        data = []
+
+    # if Apify gave valid data
+    if isinstance(data, list) and len(data) > 0:
+        rows = []
+        for r in data:
+            rows.append({
+                "Business Name": r.get("name"),
+                "Address": r.get("address"),
+                "Phone": r.get("phone"),
+                "Rating": r.get("rating"),
+                "Reviews": r.get("reviewsCount"),
+                "Category": r.get("category"),
+                "Website": r.get("website"),
+                "Source Link": r.get("url"),
+            })
+        return pd.DataFrame(rows)
+
+    # ---------------- FALLBACK: DIRECT JUSTDIAL ----------------
+    st.info("🔄 Falling back to direct Justdial scraping...")
+
+    search_url = f"https://www.justdial.com/{city}/{query.replace(' ', '-')}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+
+    resp = requests.get(search_url, headers=headers, timeout=30)
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    cards = soup.select("div.resultbox")  # may need adjustment
     rows = []
-    for r in data:
+
+    for c in cards[:limit]:
+        name = c.select_one("h2 a")
+        phone = c.select_one("p.contact-info a")
+        rating = c.select_one("span.green-box")
+        reviews = c.select_one("span.votes")
+        address = c.select_one("span.address-info")
+
         rows.append({
-            "Business Name": r.get("name"),
-            "Address": r.get("address"),
-            "Phone": r.get("phone"),
-            "Rating": r.get("rating"),
-            "Reviews": r.get("reviewsCount"),
-            "Category": r.get("category"),
-            "Website": r.get("website"),
-            "Source Link": r.get("url"),
+            "Business Name": name.text.strip() if name else None,
+            "Address": address.text.strip() if address else None,
+            "Phone": phone.text.strip() if phone else None,
+            "Rating": rating.text.strip() if rating else None,
+            "Reviews": reviews.text.strip() if reviews else None,
+            "Category": None,
+            "Website": None,
+            "Source Link": name["href"] if name and name.has_attr("href") else None,
         })
 
     return pd.DataFrame(rows)
@@ -207,3 +253,4 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
