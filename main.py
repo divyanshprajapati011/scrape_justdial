@@ -4,6 +4,12 @@ import pandas as pd
 import streamlit as st
 from playwright.async_api import async_playwright
 
+import asyncio
+import sys
+import pandas as pd
+import streamlit as st
+from playwright.async_api import async_playwright
+
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -52,3 +58,33 @@ async def scrape_justdial(keyword, location, max_results=20):
 
         await browser.close()
     return results
+
+# ================== STREAMLIT UI ==================
+st.set_page_config(page_title="Justdial Scraper (Demo)", layout="wide")
+
+st.title("📊 Justdial Business Scraper (Educational Demo)")
+st.markdown("Enter **Keyword** and **Location** to scrape Justdial business listings.")
+
+keyword = st.text_input("🔑 Enter Keyword (e.g. Plumber, Restaurant)", "Plumber")
+location = st.text_input("📍 Enter Location (e.g. Delhi, Mumbai)", "Delhi")
+max_results = st.slider("📌 Max Results", 5, 50, 20)
+
+if st.button("🚀 Start Scraping"):
+    with st.spinner("Scraping data from Justdial..."):
+        data = asyncio.run(scrape_justdial(keyword, location, max_results))
+
+        if data:
+            df = pd.DataFrame(data)
+            st.success(f"✅ Scraped {len(df)} businesses!")
+            st.dataframe(df)
+
+            # Download buttons
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download CSV", csv, "justdial_data.csv", "text/csv")
+
+            excel_file = "justdial_data.xlsx"
+            df.to_excel(excel_file, index=False)
+            with open(excel_file, "rb") as f:
+                st.download_button("⬇️ Download Excel", f, file_name=excel_file)
+        else:
+            st.error("❌ No data found. Maybe Justdial blocked the request.")
