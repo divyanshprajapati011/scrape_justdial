@@ -89,10 +89,6 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 from playwright.sync_api import sync_playwright
 import pandas as pd
 import time
-from playwright.sync_api import sync_playwright
-import pandas as pd
-from bs4 import BeautifulSoup
-import time
 
 def scrape_justdial(query, city="Bhopal", limit=50):
     rows = []
@@ -103,13 +99,10 @@ def scrape_justdial(query, city="Bhopal", limit=50):
         page = browser.new_page()
         base_url = f"https://www.justdial.com/{city}/{query.replace(' ','-')}"
         page.goto(base_url, timeout=60000)
-        time.sleep(5)  # wait for dynamic load
+        time.sleep(5)  # wait for page to load JS
 
         while fetched < limit:
-            html = page.content()
-            soup = BeautifulSoup(html, "html.parser")
-
-            listings = soup.select("div.cjrx1")  # ✅ updated selector
+            listings = page.query_selector_all("li.cntanr")  # ✅ correct selector
             if not listings:
                 break
 
@@ -117,17 +110,17 @@ def scrape_justdial(query, city="Bhopal", limit=50):
                 if fetched >= limit:
                     break
 
-                name = item.select_one("span.jcn a")
-                name = name.get_text(strip=True) if name else ""
+                name = item.query_selector("span.jcn a")
+                name = name.inner_text().strip() if name else ""
 
-                address = item.select_one("span.cont_fl_addr")
-                address = address.get_text(strip=True) if address else ""
+                address = item.query_selector("span.cont_fl_addr")
+                address = address.inner_text().strip() if address else ""
 
-                rating = item.select_one("span.green-box")
-                rating = rating.get_text(strip=True) if rating else ""
+                rating = item.query_selector("span.green-box")
+                rating = rating.inner_text().strip() if rating else ""
 
-                reviews = item.select_one("span.rt_count")
-                reviews = reviews.get_text(strip=True) if reviews else ""
+                reviews = item.query_selector("span.rt_count")
+                reviews = reviews.inner_text().strip() if reviews else ""
 
                 rows.append({
                     "Business Name": name,
@@ -149,6 +142,8 @@ def scrape_justdial(query, city="Bhopal", limit=50):
 
     return pd.DataFrame(rows)
 
+
+# ============================================================
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
@@ -271,5 +266,6 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
 
 
