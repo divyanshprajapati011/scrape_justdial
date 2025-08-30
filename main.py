@@ -104,46 +104,61 @@ def get_jd_url(query: str, city="Bhopal"):
     city = urllib.parse.quote_plus(city.strip())
     return f"https://www.justdial.com/{city}/{query}"
 
-def scrape_justdial(url: str, limit: int = 50):
-    data = []
+# justdial_scraper.py
+import time
+from playwright.sync_api import sync_playwright
+
+def scrape_justdial(query, city, limit=20):
+    results = []
+    search_url = f"https://www.justdial.com/{city}/{query}"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
-        page.goto(url, timeout=60000)
 
-        time.sleep(3)  # allow JS to load
+        page.goto(search_url, timeout=60000)
+        time.sleep(3)
 
-        # scroll to load more results
-        for _ in range(5):
-            page.mouse.wheel(0, 3000)
-            time.sleep(1.5)
+        # Infinite scroll to load results
+        last_height = 0
+        while len(results) < limit:
+            page.mouse.wheel(0, 2000)
+            time.sleep(2)
 
-        cards = page.query_selector_all("div.resultbox")  # wrapper for each business
+            cards = page.query_selector_all("article")  # each business card
+            for card in cards:
+                try:
+                    name = card.query_selector("h2, h3, h4")
+                    phone = card.query_selector("a[href*='tel:']")
+                    addr = card.query_selector("p")
 
-        for card in cards[:limit]:
-            try:
-                name = card.query_selector("h2 a").inner_text().strip() if card.query_selector("h2 a") else ""
-                phone = card.query_selector("a.tel").inner_text().strip() if card.query_selector("a.tel") else ""
-                address = card.query_selector("span.cont_fl_addr").inner_text().strip() if card.query_selector("span.cont_fl_addr") else ""
-                rating = card.query_selector("span.green-box").inner_text().strip() if card.query_selector("span.green-box") else ""
+                    results.append({
+                        "name": name.inner_text().strip() if name else "",
+                        "phone": phone.inner_text().strip() if phone else "",
+                        "address": addr.inner_text().strip() if addr else ""
+                    })
+                except:
+                    continue
 
-                data.append({
-                    "Name": name,
-                    "Phone": phone,
-                    "Address": address,
-                    "Rating": rating,
-                })
-            except Exception as e:
-                print("Error parsing card:", e)
+            if len(results) >= limit:
+                break
+
+            # scroll further
+            new_height = page.evaluate("document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
 
         browser.close()
+    return results[:limit]
 
-    return data
+# Quick test
+if __name__ == "__main__":
+    data = scrape_justdial("top coaching", "Bhopal", limit=10)
+    for d in data:
+        print(d)
+
 
 # ================== DOWNLOAD HELPERS ==================
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
@@ -265,4 +280,5 @@ elif page == "scraper":
     page_scraper()
 else:
     page_home()
+
 
